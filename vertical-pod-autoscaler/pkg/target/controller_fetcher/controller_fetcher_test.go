@@ -35,6 +35,8 @@ import (
 	scalefake "k8s.io/client-go/scale/fake"
 	core "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
+
+	targetconfig "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target/config"
 )
 
 const (
@@ -53,7 +55,7 @@ var (
 	trueVar              = true
 )
 
-func simpleControllerFetcher() *controllerFetcher {
+func simpleControllerFetcher(customResources targetconfig.SupportedCustomResources) *controllerFetcher {
 	f := controllerFetcher{}
 	f.informersMap = make(map[wellKnownController]cache.SharedIndexInformer)
 	f.scaleSubresourceCacheStorage = newControllerCacheStorage(time.Second, time.Minute, 0.1)
@@ -107,6 +109,10 @@ func simpleControllerFetcher() *controllerFetcher {
 			time.Duration(-1),
 			cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	}
+	if customResources == nil {
+		customResources = targetconfig.SupportedCustomResources{}
+	}
+	f.customResources = customResources
 	return &f
 }
 
@@ -120,12 +126,16 @@ func addController(t *testing.T, controller *controllerFetcher, obj runtime.Obje
 }
 
 func TestControllerFetcher(t *testing.T) {
+	customResources, err := targetconfig.ParseSupportedCustomResources("Foo/Foo:Foo")
+	assert.NoError(t, err)
+
 	type testCase struct {
-		name          string
-		key           *ControllerKeyWithAPIVersion
-		objects       []runtime.Object
-		expectedKey   *ControllerKeyWithAPIVersion
-		expectedError error
+		name            string
+		key             *ControllerKeyWithAPIVersion
+		objects         []runtime.Object
+		expectedKey     *ControllerKeyWithAPIVersion
+		expectedError   error
+		customResources targetconfig.SupportedCustomResources
 	}
 	for _, tc := range []testCase{
 		{
@@ -401,9 +411,20 @@ func TestControllerFetcher(t *testing.T) {
 			expectedKey:   nil, // Pod owner does not support scale subresource so should return nil"
 			expectedError: nil,
 		},
+		{
+			name: "custom resource configured without scale subresource",
+			key: &ControllerKeyWithAPIVersion{
+				ApiVersion: "Foo/Foo", ControllerKey: ControllerKey{
+					Name: "bah", Kind: "Foo", Namespace: testNamespace},
+			},
+			objects:         []runtime.Object{},
+			expectedKey:     &ControllerKeyWithAPIVersion{ControllerKey: ControllerKey{Name: "bah", Kind: "Foo", Namespace: testNamespace}, ApiVersion: "Foo/Foo"},
+			expectedError:   nil,
+			customResources: customResources,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := simpleControllerFetcher()
+			f := simpleControllerFetcher(tc.customResources)
 			for _, obj := range tc.objects {
 				addController(t, f, obj)
 			}

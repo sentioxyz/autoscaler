@@ -63,6 +63,9 @@ spec:
         - --leader-elect-renew-deadline={{ .Values.recommender.leaderElection.renewDeadline }}
         - --leader-elect-retry-period={{ .Values.recommender.leaderElection.retryPeriod }}
         {{- end }}
+        {{- if .Values.supportedCustomResources }}
+        - --supported-custom-resources={{ .Values.supportedCustomResources }}
+        {{- end }}
         {{- with .Values.recommender.extraArgs }}
           {{- toYaml . | nindent 8 }}
         {{- end }}

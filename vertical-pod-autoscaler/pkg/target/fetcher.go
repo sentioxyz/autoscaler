@@ -41,6 +41,7 @@ import (
 	klog "k8s.io/klog/v2"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	targetconfig "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target/config"
 )
 
 const (
@@ -67,7 +68,7 @@ const (
 )
 
 // NewVpaTargetSelectorFetcher returns new instance of VpaTargetSelectorFetcher
-func NewVpaTargetSelectorFetcher(config *rest.Config, kubeClient kube_client.Interface, factory informers.SharedInformerFactory) VpaTargetSelectorFetcher {
+func NewVpaTargetSelectorFetcher(config *rest.Config, kubeClient kube_client.Interface, factory informers.SharedInformerFactory, customResources targetconfig.SupportedCustomResources) VpaTargetSelectorFetcher {
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
 		klog.ErrorS(err, "Could not create discoveryClient")
@@ -92,10 +93,14 @@ func NewVpaTargetSelectorFetcher(config *rest.Config, kubeClient kube_client.Int
 	}
 
 	scaleNamespacer := scale.New(restClient, mapper, dynamic.LegacyAPIPathResolverFunc, resolver)
+	if customResources == nil {
+		customResources = targetconfig.SupportedCustomResources{}
+	}
 	return &vpaTargetSelectorFetcher{
 		scaleNamespacer: scaleNamespacer,
 		mapper:          mapper,
 		informersMap:    informersMap,
+		customResources: customResources,
 	}
 }
 
@@ -105,6 +110,7 @@ type vpaTargetSelectorFetcher struct {
 	scaleNamespacer scale.ScalesGetter
 	mapper          apimeta.RESTMapper
 	informersMap    map[wellKnownController]cache.SharedIndexInformer
+	customResources targetconfig.SupportedCustomResources
 }
 
 func (f *vpaTargetSelectorFetcher) Fetch(ctx context.Context, vpa *vpa_types.VerticalPodAutoscaler) (labels.Selector, error) {
@@ -115,6 +121,11 @@ func (f *vpaTargetSelectorFetcher) Fetch(ctx context.Context, vpa *vpa_types.Ver
 	informer, exists := f.informersMap[kind]
 	if exists {
 		return getLabelSelector(informer, vpa.Spec.TargetRef.Kind, vpa.Namespace, vpa.Spec.TargetRef.Name)
+	}
+
+	if f.customResources.Contains(vpa.Spec.TargetRef.APIVersion, vpa.Spec.TargetRef.Kind) {
+		klog.V(4).InfoS("Falling back to namespace-wide selector for custom resource targetRef", "apiVersion", vpa.Spec.TargetRef.APIVersion, "kind", vpa.Spec.TargetRef.Kind, "vpa", klog.KObj(vpa))
+		return labels.Everything(), nil
 	}
 
 	// not on a list of known controllers, use scale sub-resource

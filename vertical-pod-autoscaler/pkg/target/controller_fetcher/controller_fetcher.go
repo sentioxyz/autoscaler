@@ -41,6 +41,8 @@ import (
 	"k8s.io/client-go/scale"
 	"k8s.io/client-go/tools/cache"
 	klog "k8s.io/klog/v2"
+
+	targetconfig "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target/config"
 )
 
 type wellKnownController string
@@ -87,6 +89,7 @@ type controllerFetcher struct {
 	mapper                       apimeta.RESTMapper
 	informersMap                 map[wellKnownController]cache.SharedIndexInformer
 	scaleSubresourceCacheStorage controllerCacheStorage
+	customResources              targetconfig.SupportedCustomResources
 }
 
 func (f *controllerFetcher) periodicallyRefreshCache(ctx context.Context, period time.Duration) {
@@ -112,7 +115,7 @@ func (f *controllerFetcher) Start(ctx context.Context, loopPeriod time.Duration)
 }
 
 // NewControllerFetcher returns a new instance of controllerFetcher
-func NewControllerFetcher(config *rest.Config, kubeClient kube_client.Interface, factory informers.SharedInformerFactory, betweenRefreshes, lifeTime time.Duration, jitterFactor float64) *controllerFetcher {
+func NewControllerFetcher(config *rest.Config, kubeClient kube_client.Interface, factory informers.SharedInformerFactory, betweenRefreshes, lifeTime time.Duration, jitterFactor float64, customResources targetconfig.SupportedCustomResources) *controllerFetcher {
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
 		klog.ErrorS(err, "Could not create discoveryClient")
@@ -137,11 +140,15 @@ func NewControllerFetcher(config *rest.Config, kubeClient kube_client.Interface,
 	}
 
 	scaleNamespacer := scale.New(restClient, mapper, dynamic.LegacyAPIPathResolverFunc, resolver)
+	if customResources == nil {
+		customResources = targetconfig.SupportedCustomResources{}
+	}
 	return &controllerFetcher{
 		scaleNamespacer:              scaleNamespacer,
 		mapper:                       mapper,
 		informersMap:                 informersMap,
 		scaleSubresourceCacheStorage: newControllerCacheStorage(betweenRefreshes, lifeTime, jitterFactor),
+		customResources:              customResources,
 	}
 }
 
@@ -194,6 +201,9 @@ func getParentOfWellKnownController(informer cache.SharedIndexInformer, controll
 }
 
 func (f *controllerFetcher) getParentOfController(ctx context.Context, controllerKey ControllerKeyWithAPIVersion) (*ControllerKeyWithAPIVersion, error) {
+	if f.customResources.Contains(controllerKey.ApiVersion, controllerKey.Kind) {
+		return nil, nil
+	}
 	kind := wellKnownController(controllerKey.Kind)
 	informer, exists := f.informersMap[kind]
 	if exists {
@@ -249,6 +259,10 @@ func (f *controllerFetcher) getScaleForResource(ctx context.Context, namespace s
 
 func (f *controllerFetcher) isWellKnownOrScalable(ctx context.Context, key *ControllerKeyWithAPIVersion) bool {
 	if f.isWellKnown(key) {
+		return true
+	}
+
+	if f.customResources.Contains(key.ApiVersion, key.Kind) {
 		return true
 	}
 

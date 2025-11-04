@@ -62,6 +62,7 @@ The Vertical Pod Autoscaler (VPA) automatically adjusts the CPU and memory resou
 | admissionController.volumes[0].secret.secretName | string | `"vpa-tls-certs"` |  |
 | commonLabels | object | `{}` |  |
 | fullnameOverride | string | `nil` |  |
+| supportedCustomResources | string | `""` | Comma-separated list of custom resources (<apiVersion>:<kind>) that VPA should treat as supported targets. When set, the flag is passed to recommender, updater and admission controller. |
 | imagePullSecrets | list | `[]` |  |
 | nameOverride | string | `nil` |  |
 | rbac.create | bool | `true` |  |

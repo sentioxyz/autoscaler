@@ -50,6 +50,7 @@ import (
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/routines"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target"
+	targetconfig "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target/config"
 	controllerfetcher "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target/controller_fetcher"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/metrics"
 	metrics_quality "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/metrics/quality"
@@ -174,8 +175,14 @@ func main() {
 	metrics_resources.Register()
 	server.Initialize(&commonFlags.EnableProfiling, healthCheck, address)
 
+	customResources, err := targetconfig.ParseSupportedCustomResources(commonFlags.SupportedCustomResources)
+	if err != nil {
+		klog.ErrorS(err, "Failed to parse supported custom resources")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
+
 	if !leaderElection.LeaderElect {
-		run(ctx, healthCheck, commonFlags)
+		run(ctx, healthCheck, commonFlags, customResources)
 	} else {
 		id, err := os.Hostname()
 		if err != nil {
@@ -210,7 +217,7 @@ func main() {
 			ReleaseOnCancel: true,
 			Callbacks: leaderelection.LeaderCallbacks{
 				OnStartedLeading: func(_ context.Context) {
-					run(ctx, healthCheck, commonFlags)
+					run(ctx, healthCheck, commonFlags, customResources)
 				},
 				OnStoppedLeading: func() {
 					klog.Fatal("lost master")
@@ -239,7 +246,7 @@ func defaultLeaderElectionConfiguration() componentbaseconfig.LeaderElectionConf
 	}
 }
 
-func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *common.CommonFlags) {
+func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *common.CommonFlags, customResources targetconfig.SupportedCustomResources) {
 	// Create a stop channel that will be used to signal shutdown
 	stopCh := make(chan struct{})
 	defer close(stopCh)
@@ -247,7 +254,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 	kubeClient := kube_client.NewForConfigOrDie(config)
 	clusterState := model.NewClusterState(aggregateContainerStateGCInterval)
 	factory := informers.NewSharedInformerFactoryWithOptions(kubeClient, defaultResyncPeriod, informers.WithNamespace(commonFlag.VpaObjectNamespace))
-	controllerFetcher := controllerfetcher.NewControllerFetcher(config, kubeClient, factory, scaleCacheEntryFreshnessTime, scaleCacheEntryLifetime, scaleCacheEntryJitterFactor)
+	controllerFetcher := controllerfetcher.NewControllerFetcher(config, kubeClient, factory, scaleCacheEntryFreshnessTime, scaleCacheEntryLifetime, scaleCacheEntryJitterFactor, customResources)
 	podLister, oomObserver := input.NewPodListerAndOOMObserver(ctx, kubeClient, commonFlag.VpaObjectNamespace, stopCh)
 
 	factory.Start(stopCh)
@@ -299,7 +306,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		VpaLister:           vpa_api_util.NewVpasLister(vpa_clientset.NewForConfigOrDie(config), make(chan struct{}), commonFlag.VpaObjectNamespace),
 		VpaCheckpointLister: vpa_api_util.NewVpaCheckpointLister(vpa_clientset.NewForConfigOrDie(config), make(chan struct{}), commonFlag.VpaObjectNamespace),
 		ClusterState:        clusterState,
-		SelectorFetcher:     target.NewVpaTargetSelectorFetcher(config, kubeClient, factory),
+		SelectorFetcher:     target.NewVpaTargetSelectorFetcher(config, kubeClient, factory, customResources),
 		MemorySaveMode:      *memorySaver,
 		ControllerFetcher:   controllerFetcher,
 		RecommenderName:     *recommenderName,

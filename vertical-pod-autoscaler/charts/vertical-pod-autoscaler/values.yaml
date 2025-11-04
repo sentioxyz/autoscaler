@@ -7,6 +7,10 @@ nameOverride:
 # Override the full name of the chart.
 fullnameOverride:
 
+# Comma-separated list of custom resources (<apiVersion>:<kind>) that VPA should treat as supported targets.
+# When set, the flag is passed to recommender, updater and admission controller.
+supportedCustomResources: ""
+
 # Labels to add to all chart resources.
 commonLabels: {}
 

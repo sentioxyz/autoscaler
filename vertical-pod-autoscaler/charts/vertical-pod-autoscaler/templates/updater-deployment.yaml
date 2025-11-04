@@ -39,6 +39,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+          {{- if .Values.supportedCustomResources }}
+          args:
+            - --supported-custom-resources={{ .Values.supportedCustomResources }}
+          {{- end }}
           ports:
             - name: prometheus
               containerPort: 8943

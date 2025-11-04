@@ -33,6 +33,7 @@ type CommonFlags struct {
 	EnableProfiling            bool
 	VpaObjectNamespace         string
 	IgnoredVpaObjectNamespaces string
+	SupportedCustomResources   string
 }
 
 // InitCommonFlags initializes the common flags
@@ -44,6 +45,7 @@ func InitCommonFlags() *CommonFlags {
 	flag.BoolVar(&cf.EnableProfiling, "profiling", false, "Is debug/pprof endpoint enabled")
 	flag.StringVar(&cf.VpaObjectNamespace, "vpa-object-namespace", apiv1.NamespaceAll, "Specifies the namespace to search for VPA objects. Leave empty to include all namespaces. If provided, the garbage collector will only clean this namespace.")
 	flag.StringVar(&cf.IgnoredVpaObjectNamespaces, "ignored-vpa-object-namespaces", "", "A comma-separated list of namespaces to ignore when searching for VPA objects. Leave empty to avoid ignoring any namespaces. These namespaces will not be cleaned by the garbage collector.")
+	flag.StringVar(&cf.SupportedCustomResources, "supported-custom-resources", "", "Comma-separated list of custom resources (<apiVersion>:<kind>) that VPA should treat as supported targets, e.g. k8s.sentio.xyz/v1:DriverJob")
 	return cf
 }
 
